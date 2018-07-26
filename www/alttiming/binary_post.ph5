@@ -1,0 +1,25 @@
+<?php
+# Untested code.
+ob_start('send_content_length');
+
+function send_content_length($text){
+header("Content-length: " . strlen($text));
+return $text;
+}
+$bin = file_get_contents('php://input');
+
+$bin=base64_decode($bin);
+if((!isset($bin))||($bin==''))
+{
+	$bin=0xFFFFAAAA;
+}
+
+$bin=bin2hex($bin);
+$con=odbc_connect("nw",'logon','logon');
+$sql="insert into lora_binary (bindata) values ('".$bin."')";
+//echo($sql);
+//$r=odbc_prepare($con,$sql);
+//odbc_execute($r, array($bin));
+odbc_exec($con,$sql);
+echo("OK");
+?>
