@@ -226,6 +226,7 @@ Serial.println("END tmp");
             k++;
             }
           k+=2; //Пропускаем 0xFA 0xFB
+          
           buf->add(buf, &e);   
           }
         }
@@ -509,7 +510,7 @@ if((pack.dat[0]=='d')&&(pack.dat[1]=='p'))  //если пришел пакет �
       }
    j++;
    }
- if(LoRatmpLevel>LoRaLevel) // Если уровень выше или равен делаем синхронизация времени !!! ???
+ if((LoRatmpLevel>LoRaLevel)||(LoRaLevel==250)) // Если уровень выше или равен делаем синхронизация времени !!! ???
      {
      e.len=pack.dat[j];
      j++;
@@ -517,6 +518,11 @@ if((pack.dat[0]=='d')&&(pack.dat[1]=='p'))  //если пришел пакет �
       {
       e.dat[i]=pack.dat[j];
       j++;
+      }
+     if(buf->isFull(buf))
+      {
+       struct Event ex;  
+       buf->pull(buf, &ex);
       }
      buf->add(buf, &e);   
      }
@@ -629,9 +635,14 @@ Serial.print("e.len:");
 Serial.println(e.len);
 #endif
 for(int k=0;k<LORAAdressLen;k++)
- {
+  {
   e.resend[k]=LoRaAddr[k];
- }
+  }
+   if(buf->isFull(buf))
+    {
+    struct Event ex;  
+    buf->pull(buf, &ex);
+    }
   buf->add(buf, &e);   
   }
 }
