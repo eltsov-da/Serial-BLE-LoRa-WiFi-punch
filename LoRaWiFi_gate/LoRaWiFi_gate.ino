@@ -18,7 +18,7 @@ unsigned long lastsync=0;
 unsigned long GetLoRaAddress=1;
 #define WIFI 0
 #define LORA 1
-#define LORAAdressLen 4
+#define LORAAdressLen 6
 #define WIFITRY 2
 byte LoRaAddr[LORAAdressLen];
 

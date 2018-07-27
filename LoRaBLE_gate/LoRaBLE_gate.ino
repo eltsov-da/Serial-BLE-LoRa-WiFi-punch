@@ -15,11 +15,6 @@
 
 int scanTime = 1; //In seconds
 
-class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
-    void onResult(BLEAdvertisedDevice advertisedDevice) {
-      Serial.printf("Advertised Device: %s %d %d\n", advertisedDevice.toString().c_str(),advertisedDevice.getRSSI(),advertisedDevice.getTXPower());
-    }
-};
 
 
 
@@ -68,8 +63,10 @@ struct LoRapack
  
  
 // Create a RinBuf object designed to hold a 200 Event structs 
-RingBuf *buf = RingBuf_new(sizeof(struct Event), 50); 
-RingBuf *bufLoRa = RingBuf_new(sizeof(struct LoRapack), 100); 
+#define RINGBUFFERSIZE 100
+#define LORABUFFERSIZE 50
+RingBuf *buf = RingBuf_new(sizeof(struct Event), RINGBUFFERSIZE); 
+RingBuf *bufLoRa = RingBuf_new(sizeof(struct LoRapack), LORABUFFERSIZE); 
 SSD1306  display(0x3c, 4, 15);
 
 byte GLoRaGot=false;
@@ -141,6 +138,13 @@ union ll
  unsigned long l;
  byte b[4];
 };
+union ii
+{
+ int i;
+ byte b[2];
+};
+
+
 //---------------------------------------------------------------------------------------------------
 void sendLoRa()
 {
@@ -225,6 +229,10 @@ if((sendmode==LORA)&&(GetLoRaAddress==2)) //LORA режим, адрес полу
  int bufNumEl;
  j=0;
  i=0;
+#ifdef DEBUG
+Serial.println("Send Packet to LoRa");
+#endif
+ 
  if(!buf->isEmpty(buf))
      {
      buf->pull(buf, &e);
@@ -400,7 +408,7 @@ if((pack.dat[0]=='d')&&(pack.dat[1]=='p'))  //если пришел пакет �
       }
    j++;
    }
- if(LoRatmpLevel>LoRaLevel) // Если уровень выше или равен делаем синхронизация времени !!! ???
+ if((LoRatmpLevel>LoRaLevel)||(LoRaLevel==250)) // если уровень ниже (значение больше) то кладем к себе в основной буффер для пересылки
      {
      e.len=pack.dat[j];
      j++;
@@ -409,7 +417,15 @@ if((pack.dat[0]=='d')&&(pack.dat[1]=='p'))  //если пришел пакет �
       e.dat[i]=pack.dat[j];
       j++;
       }
-     buf->add(buf, &e);   
+     if(buf->isFull(buf))
+      {
+       struct Event ex;  
+       buf->pull(buf, &ex);
+      }
+     buf->add(buf, &e);
+#ifdef DEBUG
+Serial.println("Paket ++ to main buffer");
+#endif  
      }
 //  }    
  }
@@ -443,6 +459,84 @@ if(packetSize>0 && packetSize<sizeof(struct LoRapack))
 }
 //------------------------------------------------------------------------------------
   BLEScan* pBLEScan;
+
+class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
+    void onResult(BLEAdvertisedDevice advertisedDevice) {
+   
+    struct LoRapack pack;
+    ii rssi;
+    /*struct LoRapack 
+{ 
+  byte len; 
+  byte dat[250];
+  unsigned long gottime;
+}; */
+int i=0;
+int j=0;
+cmd=5;
+  BLEAddress xxaddr=advertisedDevice.getAddress();
+      esp_bd_addr_t *addr=xxaddr.getNative();
+  pack.dat[0]='d';
+  pack.dat[1]='p';
+   
+  for(j=2;j<LORAAdressLen+2;j++)
+   {
+   pack.dat[j]=((byte)(*addr)[j-2]);
+   }
+  if(advertisedDevice.haveServiceData())
+   {
+    std::string bledt=advertisedDevice.getServiceData();
+    byte bl=(byte)bledt.length();
+    if(bl>0)
+     {
+     if(bl<250-LORAAdressLen-2)
+      {
+      pack.dat[j]=bl;
+      }
+     else
+      {
+      pack.dat[j]=250-LORAAdressLen;
+      }
+      j++;
+     for(i=0;((i<bl)&& (i<250-LORAAdressLen-2));i++)
+       {
+       pack.dat[j]=bledt[i];
+       j++;
+       }
+      }
+     else
+      {
+      if(bl<=0)
+       {
+       pack.dat[j]=2;
+       j++;   
+       }
+      }
+   }
+else
+ {
+       pack.dat[j]=2;
+       j++;    
+ }
+   rssi.i=advertisedDevice.getRSSI();
+     pack.dat[j]=rssi.b[0];
+     j++;
+     pack.dat[j]=rssi.b[1];
+     j++;
+  pack.len=j;
+  pack.gottime=millis();
+  bufLoRa->add(bufLoRa, &pack);  //ble пакет состоит из ble адреса + если есть advertisedDevice.getServiceData(); + 2 байта RSSI 
+//!!!
+ GRssi=advertisedDevice.getRSSI();
+ GLoRaGot=true;
+
+      
+ //     Serial.printf("Advertised Device: %s %d %d\n", advertisedDevice.toString().c_str(),advertisedDevice.getRSSI(),advertisedDevice.getTXPower());
+    }
+};
+//--------------------------------------------------------------------
+
+  
 void connectWiFi()
 {
 
@@ -493,6 +587,11 @@ for(int k=0;k<LORAAdressLen;k++)
  {
   e.resend[k]=LoRaAddr[k];
  }
+  if(buf->isFull(buf))
+   {
+   struct Event ex;  
+   buf->pull(buf, &ex);
+   }
   buf->add(buf, &e);   
   }
 }
