@@ -1,23 +1,7 @@
-
+#define DEBUG 1 
 #include <SPI.h>
 #include <LoRa.h>
 #include <RingBuf.h>
-#include <SSD1306.h> // alias for `#include "SSD1306Wire.h"`
-#define DEBUG
-#include <Arduino.h>
-
-#include <Base64.h>
-
-#include <BLEDevice.h>
-//#include <BLEUtils.h>
-#include <BLEScan.h>
-#include <BLEAdvertisedDevice.h>
-
-int scanTime = 1; //In seconds
-
-
-
-
 #define SYNCPERIOD 15000
 long tsync=1;
 unsigned long lastsync=0;
@@ -26,6 +10,7 @@ unsigned long GetLoRaAddress=1;
 #define LORA 1
 #define LORAAdressLen 6
 #define WIFITRY 2
+#define BAND    433E6
 byte LoRaAddr[LORAAdressLen];
 
 int LastLoRapacketLength=0;
@@ -67,68 +52,17 @@ struct LoRapack
 #define LORABUFFERSIZE 50
 RingBuf *buf = RingBuf_new(sizeof(struct Event), RINGBUFFERSIZE); 
 RingBuf *bufLoRa = RingBuf_new(sizeof(struct LoRapack), LORABUFFERSIZE); 
-SSD1306  display(0x3c, 4, 15);
+
 
 byte GLoRaGot=false;
 int GRssi=0;
 
-
-// GPIO5  -- SX1278's SCK
-// GPIO19 -- SX1278's MISO
-// GPIO27 -- SX1278's MOSI
-// GPIO18 -- SX1278's CS
-// GPIO14 -- SX1278's RESET
-// GPIO26 -- SX1278's IRQ(Interrupt Request)
-
-#define SS      18
-#define RST     14
-#define DI0     26
-#define BAND    433E6
-//WiFiClient client;
-//-----------------------------------------------------------------------
 unsigned long getSyncTime()
 {
   return(millis()+tsync);
 }
-//-----------------------------------------------------------------------
-void cleardisplay(int y)
-{
-   display.setColor(BLACK);
-   display.fillRect(0, y, 300, 10);
-   display.display();
-   display.setColor(WHITE);
-}
-//----------------------------------------------------------------------
-void DrawRSSI()
- {
-  int i;
-// GLoRaGot=true;
-// GRssi=LoRa.packetRssi();
- if(GLoRaGot)
-  {
-  cleardisplay(10);
-  char Srssi[20];
-  char BufL[20];
-  char Loraaddrstr[40];
-  sprintf(Srssi,"RSSI: %d",GRssi);
-  display.drawString(0, 10, Srssi);
-  cleardisplay(40);
-  cleardisplay(50);
-  sprintf(Loraaddrstr,"LORa: %d",LoRaAddr[0]);
-  for(i=1;i<LORAAdressLen;i++)
-   {
-   sprintf(Loraaddrstr,"%s %d",Loraaddrstr,LoRaAddr[i]);
-   }
-   display.drawString(0, 40, Loraaddrstr);
-   sprintf(BufL,"Buf L: %d",buf->numElements(buf));
-   display.drawString(0, 50, BufL);
-   display.display();
-  } 
-  GLoRaGot=false;
- }
 
-//--------------------------------------------------------------------------------------------
- void sendtoWiFi()  //Отправляет в WiFi все, что есть в буфере
+void sendtoWiFi()  //Отправляет в WiFi все, что есть в буфере
 {
 
 
@@ -143,8 +77,7 @@ union ii
  int i;
  byte b[2];
 };
-
-
+//-----------------------------------------------------------------------------------------------------------
 //---------------------------------------------------------------------------------------------------
 void sendLoRa()
 {
@@ -200,65 +133,13 @@ Serial.print("addr ");
     lastsync=ct.l;
     }
    }
-if((sendmode==LORA)&&((millis()>GetLoRaAddress)&&(GetLoRaAddress>100)))
-   {
 
-#ifdef DEBUG
-Serial.print("ga");
-    for(i=0;i<LORAAdressLen;i++)
-      {
-      Serial.print((int)LoRaAddr[i]);
-      }
-//Serial.println("");
-#endif
-rnd=random(1000);
-    delay(rnd);
-
-      LoRa.beginPacket();
-      LoRa.print("ga");
-      for(i=0;i<LORAAdressLen;i++)
-       {
-       LoRa.write(LoRaAddr[i]);
-       }
-       LoRa.endPacket();
-       GetLoRaAddress=2;
-    }
-if((sendmode==LORA)&&(GetLoRaAddress==2)) //LORA режим, адрес получен и квитанция отправлена
- {
- struct Event e;
- int bufNumEl;
- j=0;
- i=0;
-#ifdef DEBUG
-Serial.println("Send Packet to LoRa");
-#endif
- 
- if(!buf->isEmpty(buf))
-     {
-     buf->pull(buf, &e);
-     j=2;
-     LoRa.beginPacket();
-     LoRa.print("dp");
-      for(i=0;i<LORAAdressLen;i++)
-        {
-        LoRa.write(e.resend[i]);
-        }
-     LoRa.write(e.len);
-     for(i=0;i<e.len;i++)
-      {
-      LoRa.write(e.dat[i]);
-      }
-     
-      LoRa.endPacket();
-    
-    }
- }
 
 delay(200);
 LoRa.receive(); 
 }
-//---------------------------------------------------------------------------------------------------
 
+//--------------------------------------------------------------------------------------------
 void LoRaBufPars()
  {
   struct LoRapack pack;
@@ -286,7 +167,8 @@ Serial.println("LoRa Packet");
     Serial.print(" pack length:");
     Serial.println(pack.len);  
 #endif 
-//------
+//------  Может быть только устройством верхнего уровня
+/*
 if((pack.dat[0]=='c')&&(pack.dat[1]=='t'))  //Если пришла синхронизация времени и свободный адрес от вышестоящего узла
  {
   LoRatmpLevel=250;
@@ -361,6 +243,7 @@ if((pack.dat[0]=='c')&&(pack.dat[1]=='t'))  //Если пришла синхро
     }
 
  }
+ */
 if((pack.dat[0]=='g')&& (pack.dat[1]=='a'))  //если пришла квитанция о полученнии адреса
  {
     cmd=20;
@@ -457,195 +340,42 @@ if(packetSize>0 && packetSize<sizeof(struct LoRapack))
  GRssi=LoRa.packetRssi();
  GLoRaGot=true;
 }
-//------------------------------------------------------------------------------------
-  BLEScan* pBLEScan;
 
-class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
-    void onResult(BLEAdvertisedDevice advertisedDevice) {
-   
-    struct LoRapack pack;
-    ii rssi;
-    /*struct LoRapack 
-{ 
-  byte len; 
-  byte dat[250];
-  unsigned long gottime;
-}; */
-ll tm;
-int i=0;
-int j=0;
-cmd=5;
-  tm.l=getSyncTime();
-  BLEAddress xxaddr=advertisedDevice.getAddress();
-      esp_bd_addr_t *addr=xxaddr.getNative();
-  pack.dat[0]='d';
-  pack.dat[1]='p';
-   
-  for(j=2;j<LORAAdressLen+2;j++)
-   {
-   pack.dat[j]=((byte)(*addr)[j-2]);
-   }
-  if(advertisedDevice.haveServiceData())
-   {
-    std::string bledt=advertisedDevice.getServiceData();
-    byte bl=(byte)bledt.length();
-    if(bl>0)
+void toSerial()  //пишет данные в UART 
+{
+  int i;
+  int j=0;
+  unsigned long rnd;
+ struct Event e;
+ int bufNumEl;
+ j=0;
+ i=0;
+ if(!buf->isEmpty(buf))
      {
-     if(bl<250-LORAAdressLen-6)
+     buf->pull(buf, &e);
+     j=2;
+  /*   LoRa.beginPacket();
+     LoRa.print("dp");
+      for(i=0;i<LORAAdressLen;i++)
+        {
+        LoRa.write(e.resend[i]);
+        }
+     LoRa.write(e.len);*/
+     for(i=0;i<e.len;i++)
       {
-      pack.dat[j]=bl;
+      Serial.write(e.dat[i]);
       }
-     else
-      {
-      pack.dat[j]=250-LORAAdressLen;
-      }
-      j++;
-     for(i=0;((i<bl)&& (i<250-LORAAdressLen-6));i++)
-       {
-       pack.dat[j]=bledt[i];
-       j++;
-       }
-      }
-     else
-      {
-      if(bl<=0)
-       {
-       pack.dat[j]=6;
-       j++;   
-       }
-      }
-   }
-else
- {
-       pack.dat[j]=6;
-       j++;    
- }
-   rssi.i=advertisedDevice.getRSSI();
-     pack.dat[j]=rssi.b[0];
-     j++;
-     pack.dat[j]=rssi.b[1];
-     j++;
-  for(i=0;i<4;i++)
-   {
-   pack.dat[j]=tm.b[i];
-   j++;
-   }
-  pack.len=j;
-  pack.gottime=millis();
-  bufLoRa->add(bufLoRa, &pack);  //ble пакет состоит из ble адреса + если есть advertisedDevice.getServiceData(); + 2 байта RSSI 
-//!!!
- GRssi=advertisedDevice.getRSSI();
- GLoRaGot=true;
-
-      
-      Serial.printf("Advertised Device: %s RSSI %d TXPow %d\n", advertisedDevice.toString().c_str(),advertisedDevice.getRSSI(),advertisedDevice.getTXPower());
     }
-};
-//--------------------------------------------------------------------
-
-  
-void connectWiFi()
-{
-
- {
- display.drawString(0, 10, "BLE Enable"); 
-
- display.drawString(0, 30, "LoRa repeater"); 
-  display.drawString(0, 40, "Wait address"); 
-    display.display();
-
-     sendmode=LORA;
-//try BLE listener 
-  BLEDevice::setPower(ESP_PWR_LVL_P3);
-  delay(100);
-  BLEDevice::init("");
-   delay(100);
-  BLEDevice::setPower(ESP_PWR_LVL_P3);
-//  esp_err_t errRc=::esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, ESP_PWR_LVL_P7);
-//  errRc=::esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, ESP_PWR_LVL_P7);
-//  errRc=::esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_SCAN, ESP_PWR_LVL_P7);
-  delay(100); 
-  pBLEScan = BLEDevice::getScan(); //create new scan
- // pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks(),true);
-  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks(),false);
-  pBLEScan->setActiveScan(false); //active scan uses more power, but get results faster
- }
-
- 
 }
-//------------------------------------------------------------------------------------
-void readFromSerial()  //Читает данные и UART помещает в буфер 
-{
-ll ct; 
-struct Event e;
-unsigned char i=0;
-while(Serial.available()&&(i<EVENTDATALEN))
-  {
-   
-   e.dat[i]=(unsigned char)Serial.read();
-#ifdef DEBUG
-Serial.print("e.dat[]");
-Serial.println(e.dat[i]);
-#endif
-   i++;
-  }
- if(i>0)
-  {
-  e.len=i;
-#ifdef DEBUG
-Serial.print("e.len:");
-Serial.println(e.len);
-#endif
-for(int k=0;k<LORAAdressLen;k++)
- {
-  e.resend[k]=LoRaAddr[k];
- }
-  if(buf->isFull(buf))
-   {
-   struct Event ex;  
-   buf->pull(buf, &ex);
-   }
-  buf->add(buf, &e);   
-  }
-}
+
+
+
 
 
 
 void setup() {
-  pinMode(DI0,INPUT);
-  pinMode(16,OUTPUT);
-  digitalWrite(16, LOW);    // set GPIO16 low to reset OLED
-  delay(50); 
-   digitalWrite(16, HIGH); // while OLED is running, must set GPIO16 in high
-    display.init();
-    display.flipScreenVertically();
-    display.setFont(ArialMT_Plain_10);
-    display.setTextAlignment(TEXT_ALIGN_LEFT);
-  display.clear();
-  display.drawString(0, 0, "Strat LoRa WiFi gateway");
-  display.display(); 
-  Serial.begin(115200);
-  while (!Serial); //if just the the basic function, must connect to a computer
-
-  SPI.begin(5,19,27,18);
-  LoRa.setPins(SS,RST,DI0);
-
-  while (!LoRa.begin(BAND)) {
-  display.clear();
-  display.drawString(0, 0, "LoRa faile!!!");
-  display.display(); 
-  }
-display.clear();
- display.drawString(0, 0, "LoRa ok!!!");
- 
-  display.display(); 
-    for(int k=0;k<LORAAdressLen;k++)
-     {
-     LoRaAddr[k]=0xFF;
-     }
+while (!LoRa.begin(BAND));
 lastsync=getSyncTime();
-connectWiFi();
-
 
   // register the receive callback
   LoRa.onReceive(onReceive);
@@ -661,19 +391,11 @@ Serial.println(rand());
 #ifdef DEBUG
 unsigned long snddeb=0;
 #endif
-//-----------------------------------------------------------------------------
+
+
 void loop() {
-
-DrawRSSI();
 LoRaBufPars();
-readFromSerial(); 
-
-sendtoWiFi();
-
-sendLoRa();
-LoRa.receive(); 
-
-  BLEScanResults foundDevices = pBLEScan->start(scanTime);
+toSerial(); 
 #ifdef DEBUG
 if(cmd!=0)
  {
@@ -691,4 +413,5 @@ if(millis()-snddeb>30000)
 
 #endif
 }
+
 

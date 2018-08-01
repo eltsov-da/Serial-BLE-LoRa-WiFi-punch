@@ -85,10 +85,10 @@ void setup() {
   // Create the BLE Device
   BLEDevice::init("");
   
-esp_err_t errRc=::esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, ESP_PWR_LVL_P1);
-errRc=::esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, ESP_PWR_LVL_P1);
-errRc=::esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_SCAN, ESP_PWR_LVL_P1); 
-BLEDevice::setPower(ESP_PWR_LVL_P1);
+esp_err_t errRc=::esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, ESP_PWR_LVL_P7);
+errRc=::esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, ESP_PWR_LVL_P7);
+errRc=::esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_SCAN, ESP_PWR_LVL_P7); 
+BLEDevice::setPower(ESP_PWR_LVL_P7);
 
 
   // Create the BLE Server
