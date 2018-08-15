@@ -28,7 +28,7 @@ byte LoRaCurrentAdress=1;
 byte sendmode=WIFI;
 const char* ssid     = "TPw2K";
 const char* password = "+7(921)9636379";
-
+//const char* ssid     = "eld_kzj_3_3";
 //const char* password = "";
 //const char* ssid     = "RS71D";
 //const char* ssid     = "444";
@@ -617,10 +617,10 @@ void readFromSerial()  //Читает данные и UART помещает в �
 ll ct; 
 struct Event e;
 unsigned char i=0;
-while(Serial.available()&&(i<EVENTDATALEN))
+while(Serial1.available()&&(i<EVENTDATALEN))
   {
    
-   e.dat[i]=(unsigned char)Serial.read();
+   e.dat[i]=(unsigned char)Serial1.read();
 #ifdef DEBUG
 Serial.print("e.dat[]");
 Serial.println(e.dat[i]);
@@ -662,7 +662,8 @@ void setup() {
   display.clear();
   display.drawString(0, 0, "Strat LoRa WiFi gateway");
   display.display(); 
-  Serial.begin(115200);
+  Serial.begin(115200,SERIAL_8N1,3,1);
+  Serial1.begin(115200,SERIAL_8N1,12,13);
   while (!Serial); //if just the the basic function, must connect to a computer
 
   SPI.begin(5,19,27,18);
