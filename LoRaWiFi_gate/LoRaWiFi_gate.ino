@@ -26,14 +26,14 @@ int LastLoRapacketLength=0;
 byte LoRaLevel=250;
 byte LoRaCurrentAdress=1;
 byte sendmode=WIFI;
-const char* ssid     = "TPw2K";
-const char* password = "+7(921)9636379";
-//const char* ssid     = "eld_kzj_3_3";
+//const char* ssid     = "TPw2K";
+//const char* password = "+7(921)9636379";
+const char* ssid     = "eld_kzj_3_3";
 //const char* password = "";
 //const char* ssid     = "RS71D";
 //const char* ssid     = "444";
 
-//const char* password = "as.df.gh12";
+const char* password = "as.df.gh12";
 
 const char* host = "www.northernwind.spb.ru";
 const int httpPort = 80;
@@ -163,7 +163,10 @@ Serial.print(":");
 #ifdef DEBUG
 Serial.print(tmp[j]);
 Serial.print(":");
+#else
+Serial.write(tmp[j]);
 #endif
+
     j++;
     }
     tmp[j]=0xFA;
@@ -617,10 +620,11 @@ void readFromSerial()  //Читает данные и UART помещает в �
 ll ct; 
 struct Event e;
 unsigned char i=0;
-while(Serial1.available()&&(i<EVENTDATALEN))
+ 
+while(Serial2.available()&&(i<EVENTDATALEN))
   {
    
-   e.dat[i]=(unsigned char)Serial1.read();
+   e.dat[i]=(unsigned char)Serial2.read();
 #ifdef DEBUG
 Serial.print("e.dat[]");
 Serial.println(e.dat[i]);
@@ -647,7 +651,7 @@ for(int k=0;k<LORAAdressLen;k++)
   }
 }
 
-
+// HardwareSerial Serial2(2);
 
 void setup() {
   pinMode(DI0,INPUT);
@@ -662,8 +666,20 @@ void setup() {
   display.clear();
   display.drawString(0, 0, "Strat LoRa WiFi gateway");
   display.display(); 
+  #ifdef DEBUG
   Serial.begin(115200,SERIAL_8N1,3,1);
-  Serial1.begin(115200,SERIAL_8N1,12,13);
+  #else
+    Serial.begin(38400,SERIAL_8N1,3,1);
+  #endif
+ 
+
+#define SERIAL2_RXPIN 23 
+
+#define SERIAL2_TXPIN 22 
+
+    Serial2.begin(38400, SERIAL_8N1, SERIAL2_RXPIN, SERIAL2_TXPIN); 
+
+  
   while (!Serial); //if just the the basic function, must connect to a computer
 
   SPI.begin(5,19,27,18);
@@ -678,6 +694,8 @@ display.clear();
  display.drawString(0, 0, "LoRa ok!!!");
  
   display.display(); 
+ 
+
     for(int k=0;k<LORAAdressLen;k++)
      {
      LoRaAddr[k]=0xFF;
@@ -692,9 +710,11 @@ connectWiFi();
   // put the radio into receive mode
   LoRa.receive();
     delay(5000);
-#ifdef DEBUG
+ #ifdef DEBUG
 Serial.print("rand");
 Serial.println(rand());
+
+
 #endif
 }
 #ifdef DEBUG
