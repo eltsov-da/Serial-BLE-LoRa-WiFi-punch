@@ -1,4 +1,4 @@
-#define DEBUG 1 
+#define xDEBUG 1 
 #include <SPI.h>
 #include <LoRa.h>
 #include <RingBuf.h>
@@ -29,7 +29,7 @@ const char* password = "+7(921)9636379";
 const char* host = "www.northernwind.spb.ru";
 const int httpPort = 80;
 int cmd=0;
-#define EVENTDATALEN 20
+#define EVENTDATALEN 50
 struct Event 
 { 
   unsigned char resend[LORAAdressLen]; 
@@ -39,7 +39,7 @@ struct Event
 struct LoRapack 
 { 
   byte len; 
-  byte dat[250];
+  byte dat[EVENTDATALEN];
   unsigned long gottime;
 }; 
  
@@ -48,8 +48,8 @@ struct LoRapack
  
  
 // Create a RinBuf object designed to hold a 200 Event structs 
-#define RINGBUFFERSIZE 100
-#define LORABUFFERSIZE 50
+#define RINGBUFFERSIZE 5
+#define LORABUFFERSIZE 3
 RingBuf *buf = RingBuf_new(sizeof(struct Event), RINGBUFFERSIZE); 
 RingBuf *bufLoRa = RingBuf_new(sizeof(struct LoRapack), LORABUFFERSIZE); 
 
@@ -117,7 +117,7 @@ Serial.print("addr ");
        {
        LoRa.write(ct.b[i]);
        }  
-      for(i=0;i<LORAAdressLen;i++)
+     for(i=0;i<LORAAdressLen;i++)
        {
        if(i==LoRaLevel)
         {
@@ -127,7 +127,15 @@ Serial.print("addr ");
         {
         LoRa.write(LoRaAddr[i]);  
         }
-       } 
+
+        
+  
+      } 
+      //SUPER DEBUG
+     /*  for(i=0;i<6;i++)
+        {
+        LoRa.write(1);        
+        }*/
     LoRa.endPacket();
 
     lastsync=ct.l;
@@ -278,6 +286,9 @@ if((pack.dat[0]=='g')&& (pack.dat[1]=='a'))  //если пришла квита�
 
 if((pack.dat[0]=='d')&&(pack.dat[1]=='p'))  //если пришел пакет с данными
  {
+  #ifdef DEBUG
+Serial.println("got dp");
+#endif 
    cmd=30;
    j=2;
 // for(int xj=0;xj<(pack.len-2)/sizeof(struct Event);xj++)
@@ -309,6 +320,7 @@ if((pack.dat[0]=='d')&&(pack.dat[1]=='p'))  //если пришел пакет �
 #ifdef DEBUG
 Serial.println("Paket ++ to main buffer");
 #endif  
+//Serial.println("Paket ++ to main buffer");
      }
 //  }    
  }
@@ -323,15 +335,16 @@ void onReceive(int packetSize)  //Срабатывает при получени
 {
 struct LoRapack pack;
 int i=0;
-cmd=5;
 
 if(packetSize>0 && packetSize<sizeof(struct LoRapack))
  {
- while(LoRa.available())
+  cmd=5;
+
+for (int i = 0; i < packetSize&&i<EVENTDATALEN; i++)
   {
    pack.dat[i]=LoRa.read();
-   i++;
   }
+  LoRa.flush();
   pack.len=packetSize;
   pack.gottime=millis();
   bufLoRa->add(bufLoRa, &pack);
@@ -352,6 +365,7 @@ void toSerial()  //пишет данные в UART
  i=0;
  if(!buf->isEmpty(buf))
      {
+ //Serial.println("xxx");
      buf->pull(buf, &e);
      j=2;
   /*   LoRa.beginPacket();
@@ -374,7 +388,20 @@ void toSerial()  //пишет данные в UART
 
 
 void setup() {
+  Serial.begin(38400);
+    sendmode=WIFI;
+    LoRaLevel=0;
+    for(int k=0;k<LORAAdressLen;k++)
+     {
+     LoRaAddr[k]=0;
+     }
+
+#ifdef DEBUG
+Serial.print("rand");
+Serial.println(rand());
+#endif
 while (!LoRa.begin(BAND));
+//LoRa.setTxPower(10);
 lastsync=getSyncTime();
 
   // register the receive callback
@@ -383,10 +410,7 @@ lastsync=getSyncTime();
   // put the radio into receive mode
   LoRa.receive();
     delay(5000);
-#ifdef DEBUG
-Serial.print("rand");
-Serial.println(rand());
-#endif
+Serial.print("rady");
 }
 #ifdef DEBUG
 unsigned long snddeb=0;
@@ -394,12 +418,13 @@ unsigned long snddeb=0;
 
 
 void loop() {
+sendLoRa();
 LoRaBufPars();
 toSerial(); 
 #ifdef DEBUG
 if(cmd!=0)
  {
-   Serial.print("got ");
+ Serial.print("got ");
  Serial.println(cmd);
  cmd=0;
  
