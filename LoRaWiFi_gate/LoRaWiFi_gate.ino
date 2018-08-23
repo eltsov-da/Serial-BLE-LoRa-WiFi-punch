@@ -3,9 +3,10 @@
 #include <LoRa.h>
 #include <RingBuf.h>
 #include <SSD1306.h> // alias for `#include "SSD1306Wire.h"`
-#define xDEBUG
-#define SDEBUG
+#define DEBUG
+#define xSDEBUG
 #include <Arduino.h>
+#include "esp_system.h"
 
 #include <WiFi.h>
 #include <WiFiMulti.h>
@@ -16,6 +17,7 @@ WiFiMulti wifiMulti;
 #define SYNCPERIOD 15000
 long tsync=1;
 unsigned long lastsync=0;
+unsigned long lastLoRaPacket=0;
 //unsigned long GetLoRaAddress=1;
 //unsigned long SetLoRaAddress=0;
 unsigned long gasend=-1;
@@ -40,12 +42,12 @@ byte LoRaLevel=250;
 
 byte LoRaCurrentAdress=1;
 byte sendmode=WIFI;
-//const char* ssid     = "TPw2K";
-const char* password = "+7(921)9636379";
+const char* ssid     = "TPw2K";
+//const char* password = "+7(921)9636379";
 
-const char* ssid     = "eld_kzj_2_3";
+//const char* ssid     = "eld_kzj_2_3";
 //const char* ssid     = "RS71D";
-//const char* password = "as.df.gh12";
+const char* password = "as.df.gh12";
 
 const char* host = "www.northernwind.spb.ru";
 const int httpPort = 80;
@@ -86,10 +88,12 @@ RingBuf *buf = RingBuf_new(sizeof(struct Event), 200);
 RingBuf *bufLoRa = RingBuf_new(sizeof(struct LoRapack), 200); 
 RingBuf *gaData = RingBuf_new(sizeof(struct GAData), 5); 
 SSD1306  display(0x3c, 4, 15);
-
+int setbandwidth=0;
+int setsfactor=0;
+byte setreboot=false;
 byte GLoRaGot=false;
 int GRssi=0;
-
+float GSnr=0;
 
 // GPIO5  -- SX1278's SCK
 // GPIO19 -- SX1278's MISO
@@ -117,20 +121,47 @@ void cleardisplay(int y)
    display.setColor(WHITE);
 }
 //----------------------------------------------------------------------
+#define WDTTIMEOUT 120000000 //in microseconds!!!
+const int loopTimeCtl = 0;
+hw_timer_t *timer = NULL;
+void IRAM_ATTR resetModule(){
+    ets_printf("reboot\n");
+    esp_restart_noos();
+}
+
+//---------------------------------------------------------------------
 void DrawRSSI()
  {
   int i;
 // GLoRaGot=true;
 // GRssi=LoRa.packetRssi();
+#ifdef DEBUG
+  timerWrite(timer, 0);
+#endif
+ char tmpstr[40];
+  char Srssi[20];
+  byte bw = (LoRa.readRegister(0x1d) >> 4);  //read bandwidth
+  int sf=(LoRa.readRegister(0x1e) >> 4); //read Spreading Factor
+int llp=(int)(millis()-lastLoRaPacket)/1000;
+  cleardisplay(0);
+ sprintf(tmpstr,"ID:%d sf:%d BW:%d llp:%d",(int)WiFimac[5],sf,bw,llp);
+  display.drawString(0, 0, tmpstr); 
+ cleardisplay(10);
+
+  sprintf(Srssi,"RSSI: %d SNR:%5.2f ",GRssi,GSnr);
+  display.drawString(0, 10, Srssi);
  if(GLoRaGot)
   {
-  cleardisplay(10);
+    timerWrite(timer, 0);
+
   char modes[20];
-  char Srssi[20];
+ 
   char BufL[20];
   char Loraaddrstr[40];
-  sprintf(Srssi,"RSSI: %d",GRssi);
-  display.drawString(0, 10, Srssi);
+ 
+
+ 
+ 
   cleardisplay(30);
   cleardisplay(40);
   cleardisplay(50);
@@ -160,8 +191,9 @@ void DrawRSSI()
    sprintf(BufL,"Buf L: %d",buf->numElements(buf));
    display.drawString(0, 50, BufL);
    
-   display.display();
+ 
   } 
+  display.display();
   GLoRaGot=false;
  }
 
@@ -438,9 +470,70 @@ if((sendmode==LORA)&&(LoRaAdressMode==WORK)) //LORA режим, адрес по�
       }
      
       LoRa.endPacket();
-    
+      delay(200);
+      LoRa.receive();
+     return;
     }
  }
+// byte setbandwidth=0;
+//byte setsfactor=0;
+if(setbandwidth>0)
+ {
+       LoRa.beginPacket();
+      LoRa.print("bw");
+      for(i=0;i<LORAAdressLen;i++)
+       {
+       LoRa.write(LoRaAddr[i]);
+       }
+       LoRa.write(setbandwidth);
+       LoRa.write(WiFimac[5]);
+       LoRa.endPacket();
+    delay(200);
+    LoRa.receive();
+  LoRa.writeRegister(0x1d, (LoRa.readRegister(0x1d) & 0x0f) | (setbandwidth << 4));
+  setbandwidth=0;
+  return;
+ }
+
+if(setsfactor>0)
+ {
+       LoRa.beginPacket();
+      LoRa.print("sf");
+      for(i=0;i<LORAAdressLen;i++)
+       {
+       LoRa.write(LoRaAddr[i]);
+       }
+       LoRa.write(setsfactor);
+       LoRa.write(WiFimac[5]);
+       LoRa.endPacket();
+    delay(200);
+    LoRa.receive();
+    if (setsfactor == 6) {
+    LoRa.writeRegister(0x31, 0xc5);
+    LoRa.writeRegister(0x37, 0x0c);
+  } else {
+    LoRa.writeRegister(0x31, 0xc3);
+    LoRa.writeRegister(0x37, 0x0a);
+  }
+
+  LoRa.writeRegister(0x1e, (LoRa.readRegister(0x1e) & 0x0f) | ((setsfactor << 4) & 0xf0));
+  setsfactor=0;
+  return;
+ }
+ 
+ if(setreboot)
+  {
+      LoRa.beginPacket();
+      LoRa.print("rd");
+      for(i=0;i<LORAAdressLen;i++)
+       {
+       LoRa.write(LoRaAddr[i]);
+       }
+       LoRa.write(WiFimac[5]);
+       LoRa.endPacket();
+    delay(200);
+    ESP.restart();
+  }
 //  lastLoRa=millis();
   delay(200);
   LoRa.receive();
@@ -482,6 +575,22 @@ Serial.println("LoRa Packet");
     Serial.println(pack.len);  
 #endif 
 //------
+lastLoRaPacket=pack.gottime;
+
+if((pack.dat[0]=='b')&&(pack.dat[1]=='w'))
+ {
+ setbandwidth=pack.dat[2+LORAAdressLen];
+ }
+ if((pack.dat[0]=='s')&&(pack.dat[1]=='f'))
+ {
+ setsfactor=pack.dat[2+LORAAdressLen];
+ }
+
+
+if((pack.dat[0]=='r')&&(pack.dat[1]=='d'))
+ {
+ setreboot=true;
+ }
 if((pack.dat[0]=='a')&&(pack.dat[1]=='g')&&(pack.dat[pack.len-1]==WiFimac[5])&&(sendmode==LORA))  //если пришло подтвержение получения адреса и оно пришло нам (pack.dat[pack.len]==WiFimac[5])
     {  //записываем его как основной адрес
     j=LORAAdressLen+1;
@@ -785,6 +894,7 @@ if(packetSize>0 && packetSize<sizeof(struct LoRapack))
   bufLoRa->add(bufLoRa, &pack);
  }
  GRssi=LoRa.packetRssi();
+ GSnr=LoRa.packetSnr();
  GLoRaGot=true;
 }
 //------------------------------------------------------------------------------------
@@ -925,6 +1035,22 @@ Serial.println(e.dat[i]);
  //    tsync=0;
      break;   
      }
+    case 'r':
+     {
+     setreboot=true;
+     break;   
+     }
+    case 'b':
+    {
+      setbandwidth=e.dat[3]-48;
+      break;
+    }
+      case 'f':
+    {
+      setsfactor=e.dat[3]-48;
+      break;
+    }  
+  //setreboot
     }
   }
  else
@@ -988,7 +1114,7 @@ void setup() {
   display.drawString(0, 0, "LoRa faile!!!");
   display.display(); 
   }
-
+LoRa.setTxPower(20,1);
  display.clear();
 
     for(int k=0;k<LORAAdressLen;k++)
@@ -1024,10 +1150,25 @@ Serial.println(random((int)WiFimac[5]*50));
 
 
 #endif
+lastLoRaPacket=millis();
+    pinMode(loopTimeCtl, INPUT_PULLUP);
+    delay(1000);
+    Serial.println("running setup");
+timer = timerBegin(0, 80, true); //timer 0, div 80
+    timerAttachInterrupt(timer, &resetModule, true);
+ 
+  
+      timerAlarmWrite(timer, WDTTIMEOUT, false); //set time in us
+      if(sendmode!=WIFI)
+      {
+      timerAlarmEnable(timer); //enable interrupt
+      }
+
 }
 #ifdef DEBUG
 unsigned long snddeb=0;
 #endif
+//---------------------------------------------------------
 void loop() {
 
 DrawRSSI();
