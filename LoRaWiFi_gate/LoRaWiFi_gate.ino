@@ -5,6 +5,7 @@
 #include <SSD1306.h> // alias for `#include "SSD1306Wire.h"`
 #define DEBUG
 #define xSDEBUG
+#define XDEBUG
 #include <Arduino.h>
 #include "esp_system.h"
 
@@ -18,6 +19,7 @@ WiFiMulti wifiMulti;
 long tsync=1;
 unsigned long lastsync=0;
 unsigned long lastLoRaPacket=0;
+
 //unsigned long GetLoRaAddress=1;
 //unsigned long SetLoRaAddress=0;
 unsigned long gasend=-1;
@@ -42,10 +44,10 @@ byte LoRaLevel=250;
 
 byte LoRaCurrentAdress=1;
 byte sendmode=WIFI;
-const char* ssid     = "TPw2K";
+//const char* ssid     = "TPw2K";
 //const char* password = "+7(921)9636379";
 
-//const char* ssid     = "eld_kzj_2_3";
+const char* ssid     = "eld_kzj_3_3";
 //const char* ssid     = "RS71D";
 const char* password = "as.df.gh12";
 
@@ -53,6 +55,11 @@ const char* host = "www.northernwind.spb.ru";
 const int httpPort = 80;
 int cmd=0;
 #define EVENTDATALEN 20
+union ll
+{
+ unsigned long l;
+ byte b[4];
+};
 struct Event 
 { 
   unsigned char resend[LORAAdressLen]; 
@@ -75,7 +82,14 @@ byte blacklist[BLACKLISTSIZE][LORAAdressLen];
 byte blacklistlevel[BLACKLISTSIZE];
 #define MAXGAERROR 3
 int gaerrors=0;
+#ifdef XDEBUG
+ll cnpigottime;
+byte cnpimac=0;
+long rcnpigottime=0;
+byte rcnpimac=0;
+byte rcnpimacf=0;
 
+#endif
 
 
  
@@ -150,6 +164,12 @@ int llp=(int)(millis()-lastLoRaPacket)/1000;
 
   sprintf(Srssi,"RSSI: %d SNR:%5.2f ",GRssi,GSnr);
   display.drawString(0, 10, Srssi);
+  #ifdef XDEBUG
+char xtmpstr[40];
+cleardisplay(30);
+ sprintf(xtmpstr,"ping from:%d to:%d t:%d",(int)rcnpimac,(int)rcnpimacf,rcnpigottime/1000);
+ display.drawString(0, 30, xtmpstr); 
+#endif
  if(GLoRaGot)
   {
     timerWrite(timer, 0);
@@ -327,11 +347,7 @@ connectWiFi();
 }
 
 }
-union ll
-{
- unsigned long l;
- byte b[4];
-};
+
 //---------------------------------------------------------------------------------------------------
 void sendLoRa()
 {
@@ -414,6 +430,7 @@ Serial.print("addr ");
         LoRa.write(LoRaAddr[i]);  
         }
        } 
+    LoRa.write(WiFimac[5]);
     LoRa.endPacket();
 
 //    lastsync=ct.l;
@@ -497,7 +514,7 @@ if(setbandwidth>0)
 
 if(setsfactor>0)
  {
-       LoRa.beginPacket();
+      LoRa.beginPacket();
       LoRa.print("sf");
       for(i=0;i<LORAAdressLen;i++)
        {
@@ -520,7 +537,24 @@ if(setsfactor>0)
   setsfactor=0;
   return;
  }
- 
+ #ifdef XDEBUG
+ if(cnpimac!=0)
+  {
+      LoRa.beginPacket();
+      LoRa.print("pi");
+      for(i=0;i<4;i++)
+       {
+       LoRa.write(cnpigottime.b[i]);
+       }
+       LoRa.write(cnpimac);
+       LoRa.write(WiFimac[5]);
+       LoRa.endPacket();
+    delay(200);
+    LoRa.receive();
+  cnpimac=0;
+  }
+#endif 
+
  if(setreboot)
   {
       LoRa.beginPacket();
@@ -577,6 +611,17 @@ Serial.println("LoRa Packet");
 //------
 lastLoRaPacket=pack.gottime;
 
+ #ifdef XDEBUG
+ if((pack.dat[0]=='p')&&(pack.dat[1]=='i'))
+ {
+rcnpigottime=pack.gottime;
+rcnpimac=pack.dat[7];
+rcnpimacf=pack.dat[6];
+ }
+#endif
+
+
+
 if((pack.dat[0]=='b')&&(pack.dat[1]=='w'))
  {
  setbandwidth=pack.dat[2+LORAAdressLen];
@@ -604,7 +649,7 @@ if((pack.dat[0]=='a')&&(pack.dat[1]=='g')&&(pack.dat[pack.len-1]==WiFimac[5])&&(
      j--;
      }
     LoRaAdressMode=WORK;
-    lastsync=getSyncTime()+random((int)WiFimac[5]*50);
+    lastsync=getSyncTime()+5000+random((int)WiFimac[5]*50);
     GLoRaGot=true;
     }
 
@@ -632,12 +677,19 @@ if((sendmode==LORA)&&(LoRaAdressMode==START)&&(millis()>(gasend+1.5*SYNCPERIOD))
     gaerrors++;
     GLoRaGot=true;
    }
+   
+   //-------------------CT----------------------------------------
+   
 if((pack.dat[0]=='c')&&(pack.dat[1]=='t'))  //Если пришла синхронизация времени и свободный адрес
  {
   LoRatmpLevel=250;
   j=2;
   cmd=10;
- 
+ #ifdef XDEBUG
+cnpigottime.l=pack.gottime;
+cnpimac=(byte)pack.dat[12];
+
+#endif   
   if(sendmode==LORA) //Все это работает ТОЛЬКО если это LORA repeater. WiFi gate - сам раздает время
     {
     for(i=0;i<4;i++)
@@ -670,7 +722,7 @@ if((pack.dat[0]=='c')&&(pack.dat[1]=='t'))  //Если пришла синхро
       LoRatmpLevel=i;  //вычисляем уровень полученного адреса
       }
      }
-     
+  
      if(LoRatmpLevel<=LoRaLevel) // Если уровень выше или равен делаем синхронизация времени !!! ??? + 
       {
       tsync=tsynctmp;
