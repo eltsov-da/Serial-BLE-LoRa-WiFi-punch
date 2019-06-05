@@ -18,7 +18,7 @@ RHMesh *mesh;
 
 char LORA_buf[RH_MESH_MAX_MESSAGE_LEN];
 
-int reset_lora = 23;
+int reset_lora = 14;
  uint8_t LoRaERROR=0;
  union ufb {
       float f;
@@ -235,8 +235,3 @@ void loop()
   }
   */
 }
-
-
-
-
-
