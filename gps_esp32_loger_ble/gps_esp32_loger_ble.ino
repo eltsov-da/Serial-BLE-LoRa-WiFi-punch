@@ -1,4 +1,6 @@
+#define ROWDELAY 20
 #define DEBUG
+
 #define TRACKFILE "/track.log"
 #define CONFIGFILE "/config.log"
 #define BLINK_LED 22
@@ -15,7 +17,7 @@ TinyGPSPlus gps;
 #define DOUBLEPRESS 2
 #define LONGPRESS 4
 byte buttonstatus=0;
-#define GPSDELTA 1000
+#define GPSDELTA 1500
 #define GPSSEEK 0
 #define GPSREADY 1
 #define GETGPSTREK 2
@@ -47,25 +49,84 @@ void IRAM_ATTR resetModule() {
   esp_restart();
 }
 //------------------------------------------------------------------------------
+// Функция отправки команд GPS 
+int firstlock = 0;
+ 
+// Send a byte array of UBX protocol to the GPS
+void sendUBX(uint8_t *MSG, uint8_t len) {
+  for(int i=0; i<len; i++) {
+    Serial1.write(MSG[i]);
+  }
+  //Serial.println();
+}
+
+void GPS_off()
+{
+   //Set GPS to backup mode (sets it to never wake up on its own)
+ uint8_t GPSoff[] = {0xB5, 0x62, 0x02, 0x41, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x4D, 0x3B};
+ sendUBX(GPSoff, sizeof(GPSoff)/sizeof(uint8_t));
+  }
+void GPS_on()
+{
+ uint8_t GPSon[] = {0xB5, 0x62, 0x02, 0x41, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x4C, 0x37};
+ sendUBX(GPSon, sizeof(GPSon)/sizeof(uint8_t));
+}
+  
+//------------------------------------------------------------------------------
 unsigned long lastGPSpoint=0; //внутренее время когда взяли последнюю GPS точку
+
 void GPS_getpoint()
 {
-  lastGPSpoint=millis();
-  while (Serial1.available() > 0)
+  unsigned long GPSPointTime=millis();
+  unsigned long GPSPosAge=gps.location.age();
+  bool gpsOk=false;
+#ifdef DEBUG
+ Serial.print("Age");
+ Serial.println(GPSPosAge);
+ Serial.print("Millis ");
+ Serial.println(millis());
+ ;
+#endif
+  if(GPSPosAge<GPSDELTA&&gps.location.lat()>0.1)
    {
-    gps.encode(Serial1.read());
+   gpsOk=true;
    }
-  
-//  if (gps.time.isUpdated())
+  else
+   {
+   gpsOk=false;
+   }
+   lastGPSpoint=GPSPointTime;
+
+/*  while (Serial1.available())
+   {
+    char g=Serial1.read();
+#ifdef YDEBUG
+ Serial.print(g);
+
+#endif  
+    gps.encode(g);
+   }
+#ifdef YDEBUG
+ Serial.println("");
+#endif  
+  */
+  if (gpsOk)
   {
-  
   File file = SPIFFS.open(TRACKFILE,FILE_APPEND);
   if(file)
    {
    if(file.size()>0)
    {
-   file.seek(file.size());
+    if((SPIFFS.totalBytes()-SPIFFS.usedBytes())>505)
+     {
+      file.seek(file.size());
+     }
+    else
+     {
+      file.seek(file.size()-28);
+     }
    }
+
    unsigned long gpsTime=gps.time.value(); 
    double gpsLat=gps.location.lat();
    double gpsLng=gps.location.lng();
@@ -79,7 +140,6 @@ void GPS_getpoint()
 #ifdef DEBUG
  Serial.print("File size:");
  Serial.println(file.size());
- Serial.println(sizeof(double));
 #endif
 
    file.close();
@@ -92,7 +152,7 @@ void GPS_getpoint()
  Serial.println(gpsLng,6);
  Serial.print("Point Sat:");
  Serial.println(gpsSat,6);
-
+ Serial.println("--------------------");
 #endif
    }
 #ifdef DEBUG
@@ -101,8 +161,16 @@ else
   Serial.println("File Error");
  }
 #endif
-   
   }
+#ifdef DEBUG
+else
+ {
+  unsigned long gpsSat=gps.satellites.value();
+  Serial.println("No GPS data");
+   Serial.print("Point Sat:");
+ Serial.println(gpsSat,6);
+ }
+#endif
 }
 byte UpDownFlag=LOW;  //Флаг нажатия кнопки на 33 пине
 //----------------------------------------------------------------
@@ -141,10 +209,11 @@ unsigned long timeUpDownFlagChange=0;
      }
     if(digitalRead(GPIO_NUM_33)==HIGH)  // Убеждаемся, что это не дребезг при длительном нажатии
      {
+      timeUpDownFlagChange=millis();
      while((digitalRead(GPIO_NUM_33)==HIGH) && (timeUpDownFlagChange+LONGPRESSTIME>millis()))
       {
     #ifdef DEBUG
-       Serial.println("Long wait");
+       Serial.println("Long wait 2");
     #endif       
     delay(100);  
     digitalWrite(BLINK_LED,HIGH);  //ждем сколько держат кнопку 
@@ -180,7 +249,7 @@ void gosleep(byte smode)
 #ifdef DEBUG
  Serial.println("Go sleep");
 #endif
-
+GPS_off();   // отправляем GPS в сон
   File    file = SPIFFS.open(CONFIGFILE,FILE_WRITE);
       if(file)
        {
@@ -238,7 +307,8 @@ class MyClientCallback : public BLEClientCallbacks {
 
   void onDisconnect(BLEClient* pclient) {
 #ifdef DEBUG
-  Serial.print("on Disconnect");
+  Serial.println("on Disconnect");
+  Serial.println("------------------------------------------------------");
 #endif
   if(xconnected)
    {
@@ -338,12 +408,12 @@ Serial.print("header ");
      frow[h]=bm[i];
      
 #ifdef DEBUG
-Serial.print(frow[h]);
+Serial.print(frow[h],HEX);
 #endif
      h++;
      }
 #ifdef DEBUG
-Serial.print(" ");
+Serial.print(" Date: ");
 #endif
 
    union ulb tmpdat;
@@ -362,7 +432,7 @@ Serial.print(tmpdat.ul);
    fsize.ul=file.size();
 
 #ifdef DEBUG
-Serial.print(" ");
+Serial.print(" File Size ");
 Serial.print(fsize.ul);
 #endif
 
@@ -399,12 +469,12 @@ Serial.println(cs);
     pRemoteCharacteristic->writeValue((uint8_t *)(frow),505);
     if(n>9)
      {
-     delay(170);
+     delay(ROWDELAY*3);
      n=0;
      }
    else
      {
-     delay(30);
+     delay(ROWDELAY);
      n++;
      }
 
@@ -425,7 +495,7 @@ Serial.println(cs);
      }
       frow[504]=cs;
 
-     delay(30);
+     delay(ROWDELAY);
      
      pRemoteCharacteristic->writeValue((uint8_t *)(frow),505);
      }
@@ -433,18 +503,41 @@ Serial.println(cs);
    file.close();
    }
  }
-     delay(170);  
+     delay(ROWDELAY*3);  
     
    }  //if(doConnect)
 // По окончанию работы с BLE перезагружаемся
-xconnected=false;
-pClient->disconnect();
+
+pRemoteCharacteristic->writeValue((uint8_t *)("-End-"),5);
+
+#ifdef DEBUG
+Serial.println("Export finished. Disconect.");
+#endif
+
+
+  SPIFFS.remove(CONFIGFILE);
   File    file = SPIFFS.open(CONFIGFILE,FILE_WRITE);
       if(file)
        {
+       Serial.print("Write file "); 
        file.write(0); 
        file.close();
+        File file = SPIFFS.open(CONFIGFILE,FILE_READ);
+        systemMode= file.read();
+        file.close();
+        Serial.print("Get from file "); 
+        Serial.println(systemMode);
+        
        }
+      else
+       {
+       Serial.print("Config file problem "); 
+       }
+delay(100);
+
+xconnected=false;
+pClient->disconnect();
+
   esp_restart(); 
     
 }
@@ -461,6 +554,15 @@ void setup()
   pinMode(GPIO_NUM_33, INPUT);   
   pinMode(BLINK_LED, OUTPUT);     
  digitalWrite(BLINK_LED,HIGH);
+while(Serial.available())
+ {
+  Serial.read();
+ }
+while(Serial1.available())
+ {
+  Serial1.read();
+ }
+GPS_on();   //Выводим GPS из сна
 if(!SPIFFS.begin(true)){
         Serial.println("Card Mount Failed");
         byte c=LOW;;
@@ -474,7 +576,13 @@ if(!SPIFFS.begin(true)){
 File    file = SPIFFS.open(CONFIGFILE,FILE_READ);
       if(file)
        {
-       systemMode=file.read(); 
+       while(file.available())
+        {
+        systemMode=file.read(); 
+#ifdef DEBUG
+Serial.print(systemMode);
+#endif 
+        }
        if(systemMode==COMMANDMODE)
         {
          systemMode=GPSSEEK; 
@@ -489,6 +597,8 @@ File    file = SPIFFS.open(CONFIGFILE,FILE_READ);
  delay(500);          
 #ifdef DEBUG
   Serial.println("start ");
+  Serial.print("system mode ");
+  Serial.println(systemMode);
 #endif
    digitalWrite(BLINK_LED,LOW);
    blTime=millis(); 
@@ -518,6 +628,7 @@ void sysModDepActions(unsigned long tm)
   }
   case GETGPSTREK:
   {
+
     if(bl_byte)
      {
       blDelta=2000;
@@ -545,31 +656,29 @@ void sysModDepActions(unsigned long tm)
 //-------------------------------------------------------
 void loop()
 { 
+
 timerWrite(timer, 0); //reset timer (feed watchdog)
 unsigned long loopmillis=millis();
 sysModDepActions(loopmillis);
-
-if(systemMode<GPSREADY)
- {
-    while (Serial1.available() > 0)
+while (Serial1.available() > 0)
    {
     char g;
     g=Serial1.read();
-#ifdef DEBUG
+    gps.encode(g);
+#ifdef DEBUG_PLUS
 Serial.print(g);
 #endif
-    gps.encode(g);
    }
-#ifdef DEBUG
-Serial.println("");
-#endif
-  if (gps.location.isUpdated()) 
+if(systemMode<GETGPSTREK)
+ {
+
+  if (gps.location.isValid() ) 
    {
     systemMode=GPSREADY;
-    #ifdef DEBUG
-Serial.println("Mode GPSREADY");
-#endif
-
+   }
+  else
+   {
+    systemMode=GPSSEEK;
    }
  }
 buttonstatus=button_press();
@@ -599,6 +708,20 @@ switch(buttonstatus)
      {
      systemMode=GETGPSTREK;
      SPIFFS.remove(TRACKFILE);
+     
+#ifdef DEBUG
+ Serial.println("Must be removed");
+#endif   
+     File    file = SPIFFS.open(CONFIGFILE,FILE_WRITE);
+      if(file)
+       {
+       file.write(systemMode);
+       file.close(); 
+       }
+      else
+       {
+        Serial.println("Config file problem");
+       }
      }
     break;
    }
@@ -607,7 +730,13 @@ switch(buttonstatus)
 #ifdef DEBUG
  Serial.println("LONGPRESS");
 #endif
-
+  /*   File    file = SPIFFS.open(CONFIGFILE,FILE_WRITE);
+      if(file)
+       {
+       file.write(GPSSEEK);
+       file.close(); 
+       }
+*/
  /*   if(systemMode==COMMANDMODE)
      {
      gosleep(systemPreMode); 
@@ -633,24 +762,57 @@ if(modestarttime+DELTAMODE<millis() )
   }
 }
 #ifdef DEBUG
- byte r=0;
+ char r='z';
+ char r0='z';
 while(Serial.available())
  {
-  r=Serial.read();
+  r0=Serial.read();
+  if(r0>20)
+  {
+   r=r0;
+  }
+  Serial.print("In read serial got:");
+  Serial.println(r);
  }
 switch(r)
 {
+  case 'g':
+  {
+   Serial.print("Got g, GPS to SLEEP ");
+ 
+   GPS_off();
+   break; 
+  }
+  case 'w':
+  {
+   Serial.print("Got w, GPS to WAIKE ");
+ 
+   GPS_on();
+   break; 
+  }
+
  case 'l':
   {
+   Serial.print("Got l, enter savetrack mode ");
+ 
    savetrack();
    break; 
   }
- case 'd':
+ case 'a':
+  {
+    systemMode=GETGPSTREK;
+  Serial.print("Got a, enter GETGPSTTEK mode ");
+
+
+    break;
+  }
+ case 'n':
   {
    if(systemMode!=GETGPSTREK)
     {
     systemMode=GETGPSTREK;
     SPIFFS.remove(TRACKFILE);
+     Serial.print("Got n, enter GETGPSTTEK mode and remove trackfile ");
     }
     break;
   }
